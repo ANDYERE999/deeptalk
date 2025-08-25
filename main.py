@@ -1,10 +1,80 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Cipher import PKCS1_OAEP, AES
+from Crypto.Random import get_random_bytes
 import base64
 import pyperclip
 import ctypes
+import zipfile
+import os
+import tempfile
+import secrets
+
+
+class ProgressWindow:
+    """进度条窗口"""
+    def __init__(self, parent, title="处理中..."):
+        self.cancelled = False
+        
+        self.window = tk.Toplevel(parent.root)
+        self.window.title(title)
+        self.window.geometry("400x150")
+        self.window.configure(bg=parent.colors['bg_main'])
+        self.window.transient(parent.root)
+        self.window.grab_set()
+        
+        # 设置图标
+        try:
+            self.window.iconbitmap('asset/icon.ico')
+        except tk.TclError:
+            pass
+        
+        # 居中显示
+        win_x = parent.root.winfo_x() + (parent.root.winfo_width() // 2) - 200
+        win_y = parent.root.winfo_y() + (parent.root.winfo_height() // 2) - 75
+        self.window.geometry(f"+{win_x}+{win_y}")
+        
+        # 主框架
+        main_frame = tk.Frame(self.window, bg=parent.colors['bg_light'], padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # 状态标签
+        self.status_label = tk.Label(main_frame, text="准备中...", 
+                                    font=("Microsoft YaHei UI", 10),
+                                    fg=parent.colors['text_light'],
+                                    bg=parent.colors['bg_light'])
+        self.status_label.pack(pady=(0, 10))
+        
+        # 进度条
+        self.progress = ttk.Progressbar(main_frame, length=300, mode='determinate')
+        self.progress.pack(pady=(0, 15))
+        
+        # 取消按钮
+        self.cancel_btn = RoundedButton(main_frame, text="取消", 
+                                       command=self.cancel,
+                                       bg_color=parent.colors['error'],
+                                       width=80, height=30)
+        self.cancel_btn.pack()
+        
+        self.window.protocol("WM_DELETE_WINDOW", self.cancel)
+        
+    def update_progress(self, value, status="处理中..."):
+        """更新进度"""
+        if not self.cancelled:
+            self.progress['value'] = value
+            self.status_label.config(text=status)
+            self.window.update()
+    
+    def cancel(self):
+        """取消操作"""
+        self.cancelled = True
+        self.window.destroy()
+    
+    def close(self):
+        """关闭窗口"""
+        if not self.cancelled:
+            self.window.destroy()
 
 
 class RoundedButton(tk.Canvas):
@@ -459,6 +529,7 @@ class AsymmetricChatApp:
         self._build_keys_frame()
         self._build_encrypt_frame()
         self._build_decrypt_frame()
+        self._build_file_frame()
         self._build_guide_frame()
 
     def _create_textbox_with_copy(self, parent, height=5, width=50, key_type=None):
@@ -618,14 +689,14 @@ class AsymmetricChatApp:
         btn_add_pubkey = RoundedButton(self.pubkey_control_frame, text="➕ 添加接收方", 
                                       command=self.add_pubkey_entry,
                                       bg_color=self.colors['primary'],
-                                      width=160, height=45,
+                                      width=200, height=45,
                                       font=("Microsoft YaHei UI", 10, "bold"))
         btn_add_pubkey.pack(side="left", padx=(0, 5))
         
         btn_remove_pubkey = RoundedButton(self.pubkey_control_frame, text="➖ 删除接收方", 
                                          command=self.remove_pubkey_entry,
                                          bg_color=self.colors['primary'],
-                                         width=160, height=45,
+                                         width=200, height=45,
                                          font=("Microsoft YaHei UI", 10, "bold"))
         btn_remove_pubkey.pack(side="left")
         
@@ -762,11 +833,365 @@ class AsymmetricChatApp:
         decrypt_container, self.decrypted_output = self._create_textbox_with_copy(self.frame_decrypt, height=5, key_type='decrypted')
         decrypt_container.pack(fill="both", expand=True)
 
+    def _build_file_frame(self):
+        """创建文件加密/解密区域"""
+        file_frame = ttk.LabelFrame(self.main_frame, text="📁 文件加密/解密", 
+                                    style="Keys.TLabelframe", padding=20)
+        file_frame.grid(row=1, column=0, columnspan=3, padx=0, pady=(10, 0), sticky="ew")
+
+        # 文件加密区域
+        encrypt_file_label = ttk.Label(file_frame, text="📤 加密文件:", style="Subtitle.TLabel")
+        encrypt_file_label.pack(anchor="w", pady=(0, 5))
+
+        encrypt_file_btn_frame = tk.Frame(file_frame, bg=self.colors['bg_light'])
+        encrypt_file_btn_frame.pack(fill="x", pady=(0, 15))
+
+        btn_select_files = RoundedButton(encrypt_file_btn_frame, text="📂 选择文件", 
+                                        command=self._select_files_to_encrypt,
+                                        bg_color=self.colors['primary'],
+                                        width=160, height=45)
+        btn_select_files.pack(side="left", padx=(0, 10))
+
+        btn_encrypt_files = RoundedButton(encrypt_file_btn_frame, text="🔒 加密文件", 
+                                         command=self._encrypt_files,
+                                         bg_color=self.colors['accent'],
+                                         width=160, height=45)
+        btn_encrypt_files.pack(side="left", padx=(0, 10))
+
+        self.selected_files_label = ttk.Label(file_frame, text="未选择文件", 
+                                             style="Subtitle.TLabel")
+        self.selected_files_label.pack(anchor="w", pady=(0, 15))
+
+        # 文件解密区域  
+        decrypt_file_label = ttk.Label(file_frame, text="📥 解密文件:", style="Subtitle.TLabel")
+        decrypt_file_label.pack(anchor="w", pady=(0, 5))
+
+        decrypt_file_btn_frame = tk.Frame(file_frame, bg=self.colors['bg_light'])
+        decrypt_file_btn_frame.pack(fill="x", pady=(0, 10))
+
+        btn_decrypt_file = RoundedButton(decrypt_file_btn_frame, text="🔓 解密 .epkg 文件", 
+                                        command=self._decrypt_epkg_file,
+                                        bg_color=self.colors['secondary'],
+                                        width=250, height=45)
+        btn_decrypt_file.pack(side="left")
+
+        self.file_frame = file_frame
+        self.selected_files = []
+
+    def _select_files_to_encrypt(self):
+        """选择要加密的文件"""
+        files = filedialog.askopenfilenames(
+            title="选择要加密的文件",
+            filetypes=[("所有文件", "*.*")]
+        )
+        if files:
+            self.selected_files = list(files)
+            if len(files) == 1:
+                filename = os.path.basename(files[0])
+                self.selected_files_label.config(text=f"已选择: {filename}")
+            else:
+                self.selected_files_label.config(text=f"已选择 {len(files)} 个文件")
+        else:
+            self.selected_files = []
+            self.selected_files_label.config(text="未选择文件")
+
+    def _encrypt_files(self):
+        """加密文件"""
+        if not self.selected_files:
+            self._show_warning_message("警告", "⚠️ 请先选择要加密的文件")
+            return
+
+        # 获取接收方公钥
+        pubkeys = []
+        for entry_data in self.pubkey_entries:
+            pubkey_text = entry_data['textbox'].get(1.0, tk.END).strip()
+            if pubkey_text:
+                pubkeys.append(pubkey_text)
+
+        if not pubkeys:
+            self._show_warning_message("警告", "⚠️ 请在加密栏中输入至少一个接收方公钥")
+            return
+
+        # 创建进度条窗口
+        progress_win = ProgressWindow(self, "文件加密中...")
+        
+        try:
+            # 步骤1: 生成AES密钥
+            progress_win.update_progress(10, "生成加密密钥...")
+            if progress_win.cancelled:
+                return
+            aes_key = secrets.token_bytes(32)
+            
+            # 步骤2: 创建ZIP文件
+            progress_win.update_progress(20, "压缩文件...")
+            if progress_win.cancelled:
+                return
+                 
+            # 创建临时ZIP文件
+            temp_zip_fd, temp_zip_path = tempfile.mkstemp(suffix='.zip')
+            try:
+                # 关闭文件描述符，只保留路径
+                os.close(temp_zip_fd)
+                 
+                # 创建ZIP文件
+                with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for i, file_path in enumerate(self.selected_files):
+                        if progress_win.cancelled:
+                            return
+                        progress = 20 + (i + 1) * 20 // len(self.selected_files)
+                        progress_win.update_progress(progress, f"压缩文件 {i+1}/{len(self.selected_files)}...")
+                        arcname = os.path.basename(file_path)
+                        zf.write(file_path, arcname)
+                 
+                 # 读取ZIP文件内容
+                progress_win.update_progress(45, "读取压缩文件...")
+                if progress_win.cancelled:
+                    return
+                with open(temp_zip_path, 'rb') as f:
+                    zip_data = f.read()
+                 
+            finally:
+                # 确保删除临时文件
+                try:
+                    os.unlink(temp_zip_path)
+                except OSError:
+                    pass  # 文件可能已经被删除
+
+            # 步骤3: AES加密
+            progress_win.update_progress(60, "AES加密中...")
+            if progress_win.cancelled:
+                return
+            cipher_aes = AES.new(aes_key, AES.MODE_GCM)
+            ciphertext, tag = cipher_aes.encrypt_and_digest(zip_data)
+             
+            # 准备AES加密信息
+            aes_info = aes_key + cipher_aes.nonce + tag
+             
+            # 步骤4: 为每个公钥加密
+            for i, pubkey_str in enumerate(pubkeys):
+                if progress_win.cancelled:
+                    return
+                     
+                progress = 70 + (i + 1) * 20 // len(pubkeys)
+                progress_win.update_progress(progress, f"为接收方 {i+1} 加密...")
+                 
+                try:
+                    pubkey = RSA.import_key(pubkey_str)
+                    cipher_rsa = PKCS1_OAEP.new(pubkey)
+                     
+                    # RSA加密AES信息
+                    encrypted_aes_info = cipher_rsa.encrypt(aes_info)
+                     
+                    # 保存.epkg文件
+                    save_path = filedialog.asksaveasfilename(
+                        title=f"保存加密文件 (接收方 {i+1})",
+                        defaultextension=".epkg",
+                        filetypes=[("加密包文件", "*.epkg"), ("所有文件", "*.*")]
+                    )
+                     
+                    if save_path:
+                        progress_win.update_progress(90 + i * 5, f"保存文件 {i+1}...")
+                        if progress_win.cancelled:
+                            return
+                             
+                        with open(save_path, 'wb') as f:
+                            # 写入加密的AES信息长度（4字节）
+                            f.write(len(encrypted_aes_info).to_bytes(4, 'big'))
+                            # 写入加密的AES信息
+                            f.write(encrypted_aes_info)
+                            # 写入加密的文件数据
+                            f.write(ciphertext)
+                         
+                        progress_win.update_progress(100, "加密完成！")
+                        self._show_success_message("成功", f"✅ 文件已加密并保存到: {save_path}")
+                     
+                except Exception as e:
+                    progress_win.close()
+                    self._show_error_message("错误", f"❌ 为接收方 {i+1} 加密失败: {str(e)}")
+                    return
+             
+            progress_win.close()
+                     
+        except Exception as e:
+            progress_win.close()
+            self._show_error_message("错误", f"❌ 文件加密失败: {str(e)}")
+
+    def _decrypt_epkg_file(self):
+        """解密.epkg文件"""
+        privkey_str = self.privkey_input.get(1.0, tk.END).strip()
+        if not privkey_str:
+            self._show_warning_message("警告", "⚠️ 请在解密栏中输入私钥")
+            return
+
+        # 选择.epkg文件
+        epkg_path = filedialog.askopenfilename(
+            title="选择要解密的.epkg文件",
+            filetypes=[("加密包文件", "*.epkg"), ("所有文件", "*.*")]
+        )
+         
+        if not epkg_path:
+            return
+
+        # 创建进度条窗口
+        progress_win = ProgressWindow(self, "文件解密中...")
+        
+        try:
+            # 步骤1: 导入私钥
+            progress_win.update_progress(10, "验证私钥...")
+            if progress_win.cancelled:
+                return
+            privkey = RSA.import_key(privkey_str)
+            cipher_rsa = PKCS1_OAEP.new(privkey)
+             
+            # 步骤2: 读取加密文件
+            progress_win.update_progress(20, "读取加密文件...")
+            if progress_win.cancelled:
+                return
+                 
+            with open(epkg_path, 'rb') as f:
+                # 读取加密的AES信息长度
+                aes_info_len = int.from_bytes(f.read(4), 'big')
+                # 读取加密的AES信息
+                encrypted_aes_info = f.read(aes_info_len)
+                # 读取加密的文件数据
+                encrypted_data = f.read()
+             
+            # 步骤3: 解密AES信息
+            progress_win.update_progress(40, "解密密钥信息...")
+            if progress_win.cancelled:
+                return
+            aes_info = cipher_rsa.decrypt(encrypted_aes_info)
+            aes_key = aes_info[:32]
+            nonce = aes_info[32:48]
+            tag = aes_info[48:64]
+             
+            # 步骤4: 解密文件数据
+            progress_win.update_progress(60, "解密文件数据...")
+            if progress_win.cancelled:
+                return
+            cipher_aes = AES.new(aes_key, AES.MODE_GCM, nonce=nonce)
+            decrypted_data = cipher_aes.decrypt_and_verify(encrypted_data, tag)
+             
+            # 步骤5: 选择解压目录
+            progress_win.update_progress(80, "准备解压...")
+            extract_dir = filedialog.askdirectory(title="选择解压目录")
+            if not extract_dir:
+                progress_win.close()
+                return
+             
+            if progress_win.cancelled:
+                return
+                 
+            # 步骤6: 解压文件
+            progress_win.update_progress(90, "解压文件...")
+             
+            # 创建临时ZIP文件并解压
+            temp_zip_fd, temp_zip_path = tempfile.mkstemp(suffix='.zip')
+            try:
+                # 关闭文件描述符，只保留路径
+                os.close(temp_zip_fd)
+                 
+                # 写入解密的数据到临时文件
+                with open(temp_zip_path, 'wb') as temp_file:
+                    temp_file.write(decrypted_data)
+                 
+                if progress_win.cancelled:
+                    return
+                 
+                # 解压ZIP文件
+                with zipfile.ZipFile(temp_zip_path, 'r') as zf:
+                    zf.extractall(extract_dir)
+                     
+            finally:
+                # 确保删除临时文件
+                try:
+                    os.unlink(temp_zip_path)
+                except OSError:
+                    pass  # 文件可能已经被删除
+             
+            progress_win.update_progress(100, "解密完成！")
+            progress_win.close()
+            self._show_success_message("成功", f"✅ 文件已解密并解压到: {extract_dir}")
+                 
+        except Exception as e:
+            progress_win.close()
+            self._show_error_message("错误", f"❌ 文件解密失败: {str(e)}")
+
+    def _select_file(self):
+        """选择文件"""
+        filename = filedialog.askopenfilename(
+            title="选择要加密/解密的文件",
+            filetypes=[("所有文件", "*.*")]
+        )
+        if filename:
+            self._show_success_message("成功", f"✅ 文件选择成功: {filename}")
+            self.selected_file_path = filename
+        else:
+            self._show_warning_message("警告", "⚠️ 未选择文件")
+
+    def _encrypt_file(self):
+        """加密文件"""
+        if not hasattr(self, 'selected_file_path') or not self.selected_file_path:
+            self._show_warning_message("警告", "⚠️ 请先选择要加密的文件")
+            return
+
+        if not self.pubkey_box.get(1.0, tk.END).strip():
+            self._show_warning_message("警告", "⚠️ 请先在公钥栏输入接收方公钥")
+            return
+
+        try:
+            with open(self.selected_file_path, 'rb') as f:
+                original_data = f.read()
+
+            pubkey_str = self.pubkey_box.get(1.0, tk.END).strip()
+            pubkey = RSA.import_key(pubkey_str)
+            cipher = PKCS1_OAEP.new(pubkey)
+
+            encrypted_data = cipher.encrypt(original_data)
+            encrypted_filename = self.selected_file_path + ".enc"
+
+            with open(encrypted_filename, 'wb') as f:
+                f.write(encrypted_data)
+
+            self._show_success_message("成功", f"✅ 文件加密成功！\n加密文件: {encrypted_filename}")
+            self.selected_file_path = encrypted_filename # 更新路径以便下次解密
+        except Exception as e:
+            self._show_error_message("错误", f"❌ 文件加密失败: {str(e)}")
+
+    def _decrypt_file(self):
+        """解密文件"""
+        if not hasattr(self, 'selected_file_path') or not self.selected_file_path:
+            self._show_warning_message("警告", "⚠️ 请先选择要解密的文件")
+            return
+
+        if not self.privkey_input.get(1.0, tk.END).strip():
+            self._show_warning_message("警告", "⚠️ 请先在私钥栏输入您的私钥")
+            return
+
+        try:
+            with open(self.selected_file_path, 'rb') as f:
+                encrypted_data = f.read()
+
+            privkey_str = self.privkey_input.get(1.0, tk.END).strip()
+            privkey = RSA.import_key(privkey_str)
+            cipher = PKCS1_OAEP.new(privkey)
+
+            decrypted_data = cipher.decrypt(encrypted_data)
+            decrypted_filename = self.selected_file_path.replace(".enc", "")
+
+            with open(decrypted_filename, 'wb') as f:
+                f.write(decrypted_data)
+
+            self._show_success_message("成功", f"✅ 文件解密成功！\n解密文件: {decrypted_filename}")
+            self.selected_file_path = decrypted_filename # 更新路径以便下次加密
+        except Exception as e:
+            self._show_error_message("错误", f"❌ 文件解密失败: {str(e)}")
+
     def _build_guide_frame(self):
         """创建使用指南区域"""
         guide_frame = ttk.LabelFrame(self.main_frame, text="💡 使用指南", 
                                      style="Keys.TLabelframe", padding=15)
-        guide_frame.grid(row=1, column=0, columnspan=3, padx=0, pady=(10, 0), sticky="ew")
+        guide_frame.grid(row=2, column=0, columnspan=3, padx=0, pady=(10, 0), sticky="ew")
 
         # 标题和折叠按钮
         title_bar = tk.Frame(guide_frame, bg=self.colors['bg_light'])
