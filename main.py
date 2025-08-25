@@ -115,6 +115,12 @@ class AsymmetricChatApp:
         self.root.title("非对称加/解密器")
         self.root.geometry("1508x1080")
         
+        # 设置窗口图标
+        try:
+            self.root.iconbitmap('asset/icon.ico')
+        except tk.TclError:
+            print("警告：无法加载图标 'asset/icon.ico'。")
+        
         # 配色方案
         self._init_color_schemes()
         
@@ -280,6 +286,12 @@ class AsymmetricChatApp:
                        foreground=self.colors['secondary'],
                        background=self.colors['bg_light'])
         
+        # 警告标签样式
+        style.configure("Warning.TLabel",
+                       font=("Microsoft YaHei UI", 9),
+                       foreground=self.colors['error'],
+                       background=self.colors['bg_light'])
+        
         # 复选框样式
         style.configure("Custom.TCheckbutton",
                        font=("Microsoft YaHei UI", 9),
@@ -340,7 +352,7 @@ class AsymmetricChatApp:
         if hasattr(self, 'guide_frame'):
             self.guide_frame.configure(style="Keys.TLabelframe")
             self.guide_label.configure(background=self.colors['bg_light'], foreground=self.colors['text_light'])
-
+        
         # 更新公钥输入框架
         if hasattr(self, 'pubkey_entries_frame'):
             self.pubkey_entries_frame.configure(bg=self.colors['bg_light'])
@@ -415,8 +427,8 @@ class AsymmetricChatApp:
         # 关于按钮
         btn_about = RoundedButton(self.title_frame, text="关于",
                                 command=self._show_about_window,
-                                bg_color=self.colors['bg_light'],
-                                text_color=self.colors['text_light'],
+                                 bg_color=self.colors['bg_light'],
+                                 text_color=self.colors['text_light'],
                                 width=90, height=35,
                                 font=("Microsoft YaHei UI", 10))
         btn_about.pack(side="right", padx=(0, 10))
@@ -454,7 +466,7 @@ class AsymmetricChatApp:
         container = tk.Frame(parent, bg=self.colors['bg_light'])
         
         textbox = scrolledtext.ScrolledText(
-            container,
+            container, 
             height=height, 
             width=width, 
             wrap=tk.WORD,
@@ -473,7 +485,7 @@ class AsymmetricChatApp:
         # 复制按钮镶嵌在右上角
         copy_btn = RoundedButton(container, text="📋", 
                                command=None, # 稍后设置
-                               bg_color=self.colors['secondary'],
+                                   bg_color=self.colors['secondary'],
                                width=35, height=35,
                                font=("Microsoft YaHei UI", 11))
         copy_btn.command = lambda: self._copy_textbox_content(textbox, copy_btn, key_type)
@@ -546,7 +558,13 @@ class AsymmetricChatApp:
         chk_auto_fill = ttk.Checkbutton(self.frame_keys, text="自动填充私钥到解密栏", 
                                        variable=self.auto_fill_privkey,
                                        style="Custom.TCheckbutton")
-        chk_auto_fill.pack(anchor="w", pady=(0, 20))
+        chk_auto_fill.pack(anchor="w", pady=(0, 5))
+
+        # 剪贴板安全警告
+        warning_label = ttk.Label(self.frame_keys, 
+                                  text="注意：为防止剪贴板被恶意软件读取，强烈建议勾选此项。",
+                                  style="Warning.TLabel")
+        warning_label.pack(anchor="w", pady=(0, 20))
 
         # 按钮容器
         self.keys_btn_frame = tk.Frame(self.frame_keys, bg=self.colors['bg_light'])
@@ -603,7 +621,7 @@ class AsymmetricChatApp:
                                       width=160, height=45,
                                       font=("Microsoft YaHei UI", 10, "bold"))
         btn_add_pubkey.pack(side="left", padx=(0, 5))
-
+        
         btn_remove_pubkey = RoundedButton(self.pubkey_control_frame, text="➖ 删除接收方", 
                                          command=self.remove_pubkey_entry,
                                          bg_color=self.colors['primary'],
@@ -782,7 +800,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsoFhXJ6iJ2nZV9nqGqMS
 
 Q: 这安全吗？
 A: 安全, 软件本身是开源且不需要联网的(这意味着所有人都可以审查代码来确保软件本身没有作妖)，除非某一天超级计算机被发明或者你作死泄露了私钥。
-不过，请注意其他可能窃取你聊天记录的方式(尤其是输入法)
+不过，请注意其他可能窃取你聊天记录的方式(尤其是输入法和读取剪贴板的软件)
         """
 
         self.guide_label = ttk.Label(guide_frame, text=guide_text.strip(), 
@@ -807,8 +825,15 @@ A: 安全, 软件本身是开源且不需要联网的(这意味着所有人都�
     def _show_about_window(self):
         """显示关于窗口"""
         about_win = tk.Toplevel(self.root)
-        about_win.title("关于 非对称加密聊天器")
+        about_win.title("关于 非对称加/解密器")
         about_win.geometry("1280x720")
+        
+        # 为“关于”窗口也设置图标
+        try:
+            about_win.iconbitmap('asset/icon.ico')
+        except tk.TcolorError:
+            pass # 主窗口已经警告过了，这里静默失败即可
+
         about_win.configure(bg=self.colors['bg_main'])
         about_win.transient(self.root)
         about_win.grab_set()
