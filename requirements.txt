@@ -1,0 +1,4 @@
+pycryptodome==3.19.0
+pyperclip==1.8.2
+# 构建工具 (可选，仅在需要打包时安装)
+# pyinstaller==6.2.0 
