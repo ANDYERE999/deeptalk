@@ -147,10 +147,13 @@ class RoundedButton(tk.Canvas):
         self.is_pressed = True
         self._draw_button("pressed")
     
-    def _on_release(self, event):
-        if self.is_pressed and self.command:
+    def _on_release(self, event=None):
+        """鼠标释放事件"""
+        if self.command:
             self.command()
-        self.is_pressed = False
+            # 检查组件是否还存在
+            if not self.winfo_exists():
+                return
         self._draw_button("hover")
     
     def _on_enter(self, event):
@@ -1251,32 +1254,39 @@ A: 安全, 软件本身是开源且不需要联网的(这意味着所有人都�
         """显示关于窗口"""
         about_win = tk.Toplevel(self.root)
         about_win.title("关于 非对称加/解密器")
-        about_win.geometry("1280x720")
+        
+        # 移除固定的窗口大小
+        # about_win.geometry("1280x720")
         
         # 为“关于”窗口也设置图标
         try:
             about_win.iconbitmap('asset/icon.ico')
-        except tk.TcolorError:
+        except tk.TclError:
             pass # 主窗口已经警告过了，这里静默失败即可
 
         about_win.configure(bg=self.colors['bg_main'])
         about_win.transient(self.root)
         about_win.grab_set()
-
-        # 使窗口居中
-        win_x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (500 // 2)
-        win_y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (300 // 2)
-        about_win.geometry(f"+{win_x}+{win_y}")
+        
+        # 居中显示
+        self.root.update_idletasks()
+        win_width = 600
+        win_height = 400
+        win_x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (win_width // 2)
+        win_y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (win_height // 2)
+        about_win.geometry(f"{win_width}x{win_height}+{win_x}+{win_y}")
 
         about_frame = tk.Frame(about_win, bg=self.colors['bg_light'], padx=20, pady=20)
         about_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        about_frame.grid_rowconfigure(1, weight=1)
+        about_frame.grid_columnconfigure(0, weight=1)
         
         title_label = ttk.Label(about_frame, text="关于应用",
                                 style="Title.TLabel",
                                 font=("Microsoft YaHei UI", 16, "bold"),
                                 foreground=self.colors['primary'],
                                 background=self.colors['bg_light'])
-        title_label.pack(pady=(0, 15))
+        title_label.grid(row=0, column=0, pady=(0, 15))
 
         # 在这里替换成你的关于文本
         about_text = """
@@ -1296,8 +1306,8 @@ A: 安全, 软件本身是开源且不需要联网的(这意味着所有人都�
 【开源协议】
 本应用基于 MIT 协议开源，您可以自由地使用、修改和分发本应用。
 ----------------------------------------------------
-本人编程水平有限，代码简单，请见谅。
-项目地址: https://github.com/
+本人水平有限，代码简单，请见谅。
+项目地址: https://github.com/ANDYERE999/deeptalk
 相关链接：
 - RSA 加密算法： https://www.bilibili.com/video/BV1Eo4y1y7Dh/
 - 非对称加密： https://zh.wikipedia.org/wiki/非对称加密
@@ -1311,13 +1321,13 @@ A: 安全, 软件本身是开源且不需要联网的(这意味着所有人都�
                               highlightthickness=0)
         text_widget.insert(tk.END, about_text)
         text_widget.config(state="disabled")
-        text_widget.pack(fill="both", expand=True)
+        text_widget.grid(row=1, column=0, sticky="nsew")
 
         ok_button = RoundedButton(about_frame, text="确定",
                                   command=about_win.destroy,
                                   bg_color=self.colors['primary'],
                                   width=100, height=35)
-        ok_button.pack(pady=(15, 0))
+        ok_button.grid(row=2, column=0, pady=(15, 0))
         
         # 确保圆角按钮在Toplevel中也能正确显示背景色
         ok_button.configure(bg=self.colors['bg_light'])
